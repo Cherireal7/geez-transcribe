@@ -9,8 +9,8 @@ export type { CorrectionEntry } from './fixEncoding'
 export { extractPdfText, getPdfPageCount } from './extractPdf'
 export type { ExtractionResult, ExtractionProgress } from './extractPdf'
 
-export { ocrPdf, ocrSinglePage } from './ocrPdf'
-export type { OcrResult, OcrProgress } from './ocrPdf'
+export { ocrPdf, ocrSinglePage, OCR_PROFILES } from './ocrPdf'
+export type { OcrResult, OcrProgress, OcrPageMetric, OcrProfile, OcrProfileId, OcrOptions } from './ocrPdf'
 
 export { structureOutput } from './structureOutput'
 export type { TranscribeResult, QAItem, Section, PageItem, StructureFormat, StructureOptions } from './structureOutput'

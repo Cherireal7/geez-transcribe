@@ -14,9 +14,8 @@ import {
   HeadingLevel,
   AlignmentType,
   BorderStyle,
-  ShadingType,
 } from 'docx'
-import type { TranscribeResult, QAItem, Section, PageItem } from './structureOutput'
+import type { TranscribeResult, QAItem } from './structureOutput'
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -193,8 +192,8 @@ export async function exportToDocx(result: TranscribeResult): Promise<Blob> {
     },
   })
 
-  const buffer = await Packer.toBuffer(doc)
-  return new Blob([buffer], {
+  const blob = await Packer.toBlob(doc)
+  return new Blob([blob], {
     type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   })
 }

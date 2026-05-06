@@ -46,6 +46,20 @@ export interface TranscribeResult {
   // metadata
   detected_language?: string
   average_ocr_confidence?: number
+  pipeline_version?: string
+  language_profile?: string
+  ocr_engine?: string
+  ocr_language?: string
+  low_confidence_pages?: number[]
+  ocr_page_confidence?: Array<{
+    page: number
+    confidence: number
+    text_length: number
+    low_confidence: boolean
+    pass: string
+    error?: string
+  }>
+  quality_warnings?: string[]
 }
 
 // ── Text cleaning ──────────────────────────────────────────────────────────
