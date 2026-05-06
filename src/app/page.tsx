@@ -3,7 +3,7 @@
 import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import styles from './page.module.css';
-import { transcribePdf, type PipelineProgress, type PipelineResult } from '@/lib';
+import { transcribePdf, type PipelineProgress, type PipelineResult, downloadDocx, downloadJson, downloadTxt } from '@/lib';
 
 export default function Home() {
   const [outputFormat, setOutputFormat] = useState('JSON');
@@ -161,6 +161,27 @@ export default function Home() {
             <h3 style={{ color: 'var(--success)', marginBottom: '1rem' }}>COMPLETE</h3>
             <div style={{ marginBottom: '1rem' }}>Format: {result.data.format}</div>
             <div style={{ marginBottom: '1rem' }}>Corrections: {result.data.correction_count}</div>
+            
+            <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', marginBottom: '1rem' }}>
+              <button 
+                onClick={() => downloadJson(result.data)}
+                style={{ padding: '6px 12px', border: '1px solid var(--accent-gold)', color: 'var(--accent-gold)', background: 'transparent', cursor: 'pointer', fontFamily: 'var(--font-cinzel)' }}
+              >
+                ↓ JSON
+              </button>
+              <button 
+                onClick={() => downloadDocx(result.data)}
+                style={{ padding: '6px 12px', border: '1px solid var(--border-stone)', color: 'var(--text-primary)', background: 'transparent', cursor: 'pointer', fontFamily: 'var(--font-mono)' }}
+              >
+                ↓ DOCX
+              </button>
+              <button 
+                onClick={() => downloadTxt(result.data)}
+                style={{ padding: '6px 12px', border: '1px solid var(--border-stone)', color: 'var(--text-primary)', background: 'transparent', cursor: 'pointer', fontFamily: 'var(--font-mono)' }}
+              >
+                ↓ TXT
+              </button>
+            </div>
             
             <div style={{ borderTop: '1px solid var(--border-stone)', paddingTop: '1rem', marginTop: '1rem' }}>
               <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: 'var(--text-primary)' }}>
