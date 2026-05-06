@@ -273,300 +273,314 @@ export default function Home() {
   const showRegenerate = Boolean(result);
 
   return (
-    <div className={styles.container}>
-      <aside className={styles.sidebar}>
-        <div className={styles.brand}>GEEZ TRANSCRIBE</div>
-        <div className={styles.tagline}>Ethiopic PDF to structured output</div>
+    <div className={styles.pageRoot}>
+      <div className={styles.container}>
+        <aside className={styles.sidebar}>
+          <div className={styles.brand}>GEEZ TRANSCRIBE</div>
+          <div className={styles.tagline}>Ethiopic PDF to structured output</div>
 
-        <div className={styles.divider} />
+          <div className={styles.divider} />
 
-        <div className={styles.sectionTitle}>Output file</div>
-        <div className={styles.segmentedControl}>
-          {(["JSON", "DOCX", "TXT"] as OutputFormat[]).map((format) => (
-            <button
-              key={format}
-              type="button"
-              className={`${styles.segmentBtn} ${outputFormat === format ? styles.active : ""}`}
-              onClick={() => setOutputFormat(format)}
-            >
-              {format === "JSON" && <FileCode size={14} aria-hidden />}
-              {format === "DOCX" && <FileType size={14} aria-hidden />}
-              {format === "TXT" && <FileText size={14} aria-hidden />}
-              {format}
-            </button>
-          ))}
-        </div>
-
-        <div className={styles.sectionTitle}>OCR mode</div>
-        <div className={styles.toggleRow}>
-          <span className={styles.toggleLabel}>Force OCR</span>
-          <button
-            type="button"
-            className={`${styles.toggleSwitch} ${forceOcr ? styles.toggleOn : ""}`}
-            onClick={() => setForceOcr((v) => !v)}
-            aria-pressed={forceOcr}
-            aria-label="Toggle force OCR"
-          />
-        </div>
-
-        <div className={styles.sectionTitle}>Processing</div>
-        <div className={styles.toggleRow}>
-          <span className={styles.toggleLabel}>Fix encoding</span>
-          <button
-            type="button"
-            className={`${styles.toggleSwitch} ${fixEncodingToggle ? styles.toggleOn : ""}`}
-            onClick={() => setFixEncodingToggle((v) => !v)}
-            aria-pressed={fixEncodingToggle}
-            aria-label="Toggle encoding fixes"
-          />
-        </div>
-
-        <div className={styles.sectionTitle}>Structure</div>
-        <div className={styles.segmentedControl}>
-          {(["Auto", "Pages"] as StructureDetection[]).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              className={`${styles.segmentBtn} ${structureDetection === mode ? styles.active : ""}`}
-              onClick={() => setStructureDetection(mode)}
-            >
-              {mode}
-            </button>
-          ))}
-        </div>
-
-        <div className={styles.sectionTitle}>Language profile</div>
-        <select
-          className={styles.selectControl}
-          value={ocrProfileId}
-          onChange={(event) => setOcrProfileId(event.target.value as OcrProfileId)}
-          aria-label="OCR language profile"
-        >
-          {Object.values(OCR_PROFILES).map((profile) => (
-            <option key={profile.id} value={profile.id}>
-              {profile.label}
-            </option>
-          ))}
-        </select>
-        <div className={styles.limitText}>{OCR_PROFILES[ocrProfileId].description}</div>
-
-        <div className={styles.sectionTitle}>Reliability</div>
-        <div className={styles.toggleRow}>
-          <span className={styles.toggleLabel}>Retry low confidence</span>
-          <button
-            type="button"
-            className={`${styles.toggleSwitch} ${retryLowConfidence ? styles.toggleOn : ""}`}
-            onClick={() => setRetryLowConfidence((v) => !v)}
-            aria-pressed={retryLowConfidence}
-            aria-label="Toggle low confidence retry"
-          />
-        </div>
-        <div className={styles.toggleRow}>
-          <span className={styles.toggleLabel}>Low confidence</span>
-          <select
-            className={styles.inlineSelect}
-            value={String(confidenceThreshold)}
-            onChange={(event) => setConfidenceThreshold(Number(event.target.value))}
-            aria-label="Low confidence threshold"
-          >
-            <option value="65">&lt; 65</option>
-            <option value="70">&lt; 70</option>
-            <option value="75">&lt; 75</option>
-            <option value="80">&lt; 80</option>
-          </select>
-        </div>
-
-        <div className={styles.sectionTitle}>Limits</div>
-        <div className={styles.limitText}>Max file size: {MAX_FILE_SIZE_MB}MB per PDF.</div>
-        <div className={styles.limitText}>OCR runs in browser and depends on device memory and CPU.</div>
-
-        <div className={styles.divider} />
-
-        <div className={styles.recentHeader}>
-          <History size={14} aria-hidden />
-          <span className={styles.sectionTitle}>Recent uploads</span>
-        </div>
-        {recentUploads.length === 0 ? (
-          <div className={styles.recentEmpty}>No recent files yet.</div>
-        ) : (
-          <div className={styles.recentList}>
-            {recentUploads.map((item) => (
-              <div key={item.id} className={styles.recentItem}>
-                <div className={styles.recentName}>{item.name}</div>
-                <div className={styles.recentMeta}>
-                  {formatBytes(item.size)} | {asReadableTime(item.uploadedAt)}
-                </div>
-                <div className={styles.recentMeta}>
-                  {item.pageCount ? `${item.pageCount} pages` : "Pages unknown"} | {item.extractionMethod ?? "method"} |{" "}
-                  {item.outputStructure ?? "format"}
-                </div>
-              </div>
+          <div className={styles.sectionTitle}>Output file</div>
+          <div className={styles.segmentedControl}>
+            {(["JSON", "DOCX", "TXT"] as OutputFormat[]).map((format) => (
+              <button
+                key={format}
+                type="button"
+                className={`${styles.segmentBtn} ${outputFormat === format ? styles.active : ""}`}
+                onClick={() => setOutputFormat(format)}
+              >
+                {format === "JSON" && <FileCode size={14} aria-hidden />}
+                {format === "DOCX" && <FileType size={14} aria-hidden />}
+                {format === "TXT" && <FileText size={14} aria-hidden />}
+                {format}
+              </button>
             ))}
           </div>
-        )}
 
-        <div className={styles.sidebarFoot}>Amharic | Geez</div>
-      </aside>
+          <div className={styles.sectionTitle}>OCR mode</div>
+          <div className={styles.toggleRow}>
+            <span className={styles.toggleLabel}>Force OCR</span>
+            <button
+              type="button"
+              className={`${styles.toggleSwitch} ${forceOcr ? styles.toggleOn : ""}`}
+              onClick={() => setForceOcr((v) => !v)}
+              aria-pressed={forceOcr}
+              aria-label="Toggle force OCR"
+            />
+          </div>
 
-      <div className={styles.workspace} ref={workspaceRef}>
-        <main
-          {...getRootProps({
-            className: styles.main,
-            style: { flexBasis: `${mainPanePercent}%` },
-          })}
-        >
-          <input {...getInputProps()} />
+          <div className={styles.sectionTitle}>Processing</div>
+          <div className={styles.toggleRow}>
+            <span className={styles.toggleLabel}>Fix encoding</span>
+            <button
+              type="button"
+              className={`${styles.toggleSwitch} ${fixEncodingToggle ? styles.toggleOn : ""}`}
+              onClick={() => setFixEncodingToggle((v) => !v)}
+              aria-pressed={fixEncodingToggle}
+              aria-label="Toggle encoding fixes"
+            />
+          </div>
 
-          {isDragActive && <div className={styles.dragOverlay}>Drop PDF to start transcription</div>}
-
-          {!currentPdfUrl ? (
-            <div className={styles.uploadZone}>
-              <Upload size={36} aria-hidden />
-              <div className={styles.uploadTitle}>Drop PDF here</div>
-              <div className={styles.uploadSubtitle}>or choose a file from your device</div>
-              <button type="button" className={styles.primaryBtn} onClick={open}>
-                <Upload size={15} aria-hidden />
-                Select PDF
+          <div className={styles.sectionTitle}>Structure</div>
+          <div className={styles.segmentedControl}>
+            {(["Auto", "Pages"] as StructureDetection[]).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                className={`${styles.segmentBtn} ${structureDetection === mode ? styles.active : ""}`}
+                onClick={() => setStructureDetection(mode)}
+              >
+                {mode}
               </button>
-              <div className={styles.uploadMeta}>PDF only | up to {MAX_FILE_SIZE_MB}MB</div>
-            </div>
+            ))}
+          </div>
+
+          <div className={styles.sectionTitle}>Language profile</div>
+          <select
+            className={styles.selectControl}
+            value={ocrProfileId}
+            onChange={(event) => setOcrProfileId(event.target.value as OcrProfileId)}
+            aria-label="OCR language profile"
+          >
+            {Object.values(OCR_PROFILES).map((profile) => (
+              <option key={profile.id} value={profile.id}>
+                {profile.label}
+              </option>
+            ))}
+          </select>
+          <div className={styles.limitText}>{OCR_PROFILES[ocrProfileId].description}</div>
+
+          <div className={styles.sectionTitle}>Reliability</div>
+          <div className={styles.toggleRow}>
+            <span className={styles.toggleLabel}>Retry low confidence</span>
+            <button
+              type="button"
+              className={`${styles.toggleSwitch} ${retryLowConfidence ? styles.toggleOn : ""}`}
+              onClick={() => setRetryLowConfidence((v) => !v)}
+              aria-pressed={retryLowConfidence}
+              aria-label="Toggle low confidence retry"
+            />
+          </div>
+          <div className={styles.toggleRow}>
+            <span className={styles.toggleLabel}>Low confidence</span>
+            <select
+              className={styles.inlineSelect}
+              value={String(confidenceThreshold)}
+              onChange={(event) => setConfidenceThreshold(Number(event.target.value))}
+              aria-label="Low confidence threshold"
+            >
+              <option value="65">&lt; 65</option>
+              <option value="70">&lt; 70</option>
+              <option value="75">&lt; 75</option>
+              <option value="80">&lt; 80</option>
+            </select>
+          </div>
+
+          <div className={styles.sectionTitle}>Limits</div>
+          <div className={styles.limitText}>Max file size: {MAX_FILE_SIZE_MB}MB per PDF.</div>
+          <div className={styles.limitText}>OCR runs in browser and depends on device memory and CPU.</div>
+
+          <div className={styles.divider} />
+
+          <div className={styles.recentHeader}>
+            <History size={14} aria-hidden />
+            <span className={styles.sectionTitle}>Recent uploads</span>
+          </div>
+          {recentUploads.length === 0 ? (
+            <div className={styles.recentEmpty}>No recent files yet.</div>
           ) : (
-            <div className={styles.pdfShell}>
-              <div className={styles.pdfHeader}>
-                <div>
-                  <div className={styles.pdfName}>{currentFile?.name}</div>
-                  <div className={styles.pdfMeta}>{currentFile ? formatBytes(currentFile.size) : "-"}</div>
+            <div className={styles.recentList}>
+              {recentUploads.map((item) => (
+                <div key={item.id} className={styles.recentItem}>
+                  <div className={styles.recentName}>{item.name}</div>
+                  <div className={styles.recentMeta}>
+                    {formatBytes(item.size)} | {asReadableTime(item.uploadedAt)}
+                  </div>
+                  <div className={styles.recentMeta}>
+                    {item.pageCount ? `${item.pageCount} pages` : "Pages unknown"} | {item.extractionMethod ?? "method"} |{" "}
+                    {item.outputStructure ?? "format"}
+                  </div>
                 </div>
-                <div className={styles.pdfHeaderActions}>
-                  <button type="button" className={styles.primaryBtn} onClick={runGenerate} disabled={!canGenerate}>
-                    {showRegenerate ? <RotateCcw size={15} aria-hidden /> : <Play size={15} aria-hidden />}
-                    {showRegenerate ? "Regenerate" : "Generate"}
-                  </button>
-                  <button type="button" className={styles.secondaryBtn} onClick={open}>
-                    Replace PDF
-                  </button>
-                </div>
-              </div>
-              <div className={styles.pdfFrameWrap}>
-                <iframe
-                  src={currentPdfUrl}
-                  title={currentFile?.name ?? "Uploaded PDF preview"}
-                  className={styles.pdfFrame}
-                />
-              </div>
+              ))}
             </div>
           )}
 
-          {error && <div className={styles.errorBanner}>Error: {error}</div>}
-        </main>
+          <div className={styles.sidebarFoot}>Amharic | Geez</div>
+        </aside>
 
-        <button
-          type="button"
-          className={styles.splitter}
-          onMouseDown={() => setIsResizing(true)}
-          onKeyDown={(event) => {
-            if (event.key === "ArrowLeft") {
-              setMainPanePercent((prev) => Math.max(30, prev - 2));
-            }
-            if (event.key === "ArrowRight") {
-              setMainPanePercent((prev) => Math.min(72, prev + 2));
-            }
-          }}
-          aria-label="Resize PDF and output panels"
-        >
-          <GripVertical size={16} aria-hidden />
-        </button>
+        <div className={styles.workspace} ref={workspaceRef}>
+          <main
+            {...getRootProps({
+              className: styles.main,
+              style: { flexBasis: `${mainPanePercent}%` },
+            })}
+          >
+            <input {...getInputProps()} />
 
-        <aside className={styles.panel} style={{ flexBasis: `${100 - mainPanePercent}%` }}>
-          {!progress && !result ? (
-            <div className={styles.emptyState}>
-              <div className={styles.ghostNumeral}>01</div>
-              <div className={styles.emptyMessage}>Output will appear here</div>
-            </div>
-          ) : progress ? (
-            <div className={styles.progressBlock}>
-              <h3 className={styles.panelHeading}>Processing</h3>
-              <div className={styles.progressLine}>
-                Step: <span>{progress.step}</span>
+            {isDragActive && <div className={styles.dragOverlay}>Drop PDF to start transcription</div>}
+
+            {!currentPdfUrl ? (
+              <div className={styles.uploadZone}>
+                <Upload size={36} aria-hidden />
+                <div className={styles.uploadTitle}>Drop PDF here</div>
+                <div className={styles.uploadSubtitle}>or choose a file from your device</div>
+                <button type="button" className={styles.primaryBtn} onClick={open}>
+                  <Upload size={15} aria-hidden />
+                  Select PDF
+                </button>
+                <div className={styles.uploadMeta}>PDF only | up to {MAX_FILE_SIZE_MB}MB</div>
               </div>
-              {progress.message && (
-                <div className={styles.progressLine}>
-                  Status: <span>{progress.message}</span>
+            ) : (
+              <div className={styles.pdfShell}>
+                <div className={styles.pdfHeader}>
+                  <div>
+                    <div className={styles.pdfName}>{currentFile?.name}</div>
+                    <div className={styles.pdfMeta}>{currentFile ? formatBytes(currentFile.size) : "-"}</div>
+                  </div>
+                  <div className={styles.pdfHeaderActions}>
+                    <button type="button" className={styles.primaryBtn} onClick={runGenerate} disabled={!canGenerate}>
+                      {showRegenerate ? <RotateCcw size={15} aria-hidden /> : <Play size={15} aria-hidden />}
+                      {showRegenerate ? "Regenerate" : "Generate"}
+                    </button>
+                    <button type="button" className={styles.secondaryBtn} onClick={open}>
+                      Replace PDF
+                    </button>
+                  </div>
                 </div>
-              )}
-              {progress.page && progress.totalPages && (
-                <div className={styles.progressLine}>
-                  Page:{" "}
-                  <span>
-                    {progress.page} / {progress.totalPages}
-                  </span>
+                <div className={styles.pdfFrameWrap}>
+                  <iframe
+                    src={currentPdfUrl}
+                    title={currentFile?.name ?? "Uploaded PDF preview"}
+                    className={styles.pdfFrame}
+                  />
                 </div>
-              )}
-            </div>
-          ) : (
-            result && (
-              <div className={styles.panelContent}>
-                <div className={styles.resultHead}>
-                  <h3 className={styles.successHeading}>Complete</h3>
-                  <div className={styles.resultMeta}>Structure: {result.data.format}</div>
-                  <div className={styles.resultMeta}>Corrections: {result.data.correction_count}</div>
-                  <div className={styles.resultMeta}>Extraction: {result.data.extraction_method}</div>
-                  <div className={styles.resultMeta}>Pages: {result.data.page_count}</div>
-                  {result.data.pipeline_version && <div className={styles.resultMeta}>Pipeline: {result.data.pipeline_version}</div>}
-                  {result.data.language_profile && <div className={styles.resultMeta}>Profile: {result.data.language_profile}</div>}
-                  {result.data.ocr_engine && <div className={styles.resultMeta}>OCR engine: {result.data.ocr_engine}</div>}
-                  {result.data.ocr_language && <div className={styles.resultMeta}>OCR language: {result.data.ocr_language}</div>}
-                  {typeof result.data.average_ocr_confidence === "number" && (
-                    <div className={styles.resultMeta}>
-                      OCR confidence: {result.data.average_ocr_confidence.toFixed(2)}%
-                    </div>
-                  )}
-                  {result.data.low_confidence_pages && result.data.low_confidence_pages.length > 0 && (
-                    <div className={styles.resultMeta}>
-                      Low-confidence pages: {result.data.low_confidence_pages.join(", ")}
-                    </div>
-                  )}
-                </div>
+              </div>
+            )}
 
-                {result.data.quality_warnings && result.data.quality_warnings.length > 0 && (
-                  <div className={styles.warningList}>
-                    {result.data.quality_warnings.map((warning, index) => (
-                      <div key={`${warning}-${index}`} className={styles.warningItem}>
-                        {warning}
-                      </div>
-                    ))}
+            {error && <div className={styles.errorBanner}>Error: {error}</div>}
+          </main>
+
+          <button
+            type="button"
+            className={styles.splitter}
+            onMouseDown={() => setIsResizing(true)}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowLeft") {
+                setMainPanePercent((prev) => Math.max(30, prev - 2));
+              }
+              if (event.key === "ArrowRight") {
+                setMainPanePercent((prev) => Math.min(72, prev + 2));
+              }
+            }}
+            aria-label="Resize PDF and output panels"
+          >
+            <GripVertical size={16} aria-hidden />
+          </button>
+
+          <aside className={styles.panel} style={{ flexBasis: `${100 - mainPanePercent}%` }}>
+            {!progress && !result ? (
+              <div className={styles.emptyState}>
+                <div className={styles.ghostNumeral}>01</div>
+                <div className={styles.emptyMessage}>Output will appear here</div>
+              </div>
+            ) : progress ? (
+              <div className={styles.progressBlock}>
+                <h3 className={styles.panelHeading}>Processing</h3>
+                <div className={styles.progressLine}>
+                  Step: <span>{progress.step}</span>
+                </div>
+                {progress.message && (
+                  <div className={styles.progressLine}>
+                    Status: <span>{progress.message}</span>
                   </div>
                 )}
-
-                <div className={styles.actionRow}>
-                  <button type="button" className={styles.secondaryBtn} onClick={runGenerate} disabled={!canGenerate}>
-                    <RotateCcw size={15} aria-hidden />
-                    Regenerate
-                  </button>
-                  <button type="button" className={styles.primaryBtn} onClick={downloadSelectedFormat}>
-                    <Download size={15} aria-hidden />
-                    Download {outputFormat}
-                  </button>
-                  <button type="button" className={styles.secondaryBtn} onClick={downloadAllFormats}>
-                    <Download size={15} aria-hidden />
-                    Download all
-                  </button>
-                  <button type="button" className={styles.secondaryBtn} onClick={() => void copyPreview()}>
-                    <Copy size={15} aria-hidden />
-                    {copied ? "Copied" : "Copy"}
-                  </button>
-                </div>
-
-                <div className={styles.previewLabel}>
-                  Preview ({selectedFormatLabel})
-                  {outputFormat === "DOCX" && <span className={styles.previewHint}> - final styling is in the downloaded DOCX</span>}
-                </div>
-                <pre className={styles.previewBox}>{previewText}</pre>
+                {progress.page && progress.totalPages && (
+                  <div className={styles.progressLine}>
+                    Page:{" "}
+                    <span>
+                      {progress.page} / {progress.totalPages}
+                    </span>
+                  </div>
+                )}
               </div>
-            )
-          )}
-        </aside>
+            ) : (
+              result && (
+                <div className={styles.panelContent}>
+                  <div className={styles.resultHead}>
+                    <h3 className={styles.successHeading}>Complete</h3>
+                    <div className={styles.resultMeta}>Structure: {result.data.format}</div>
+                    <div className={styles.resultMeta}>Corrections: {result.data.correction_count}</div>
+                    <div className={styles.resultMeta}>Extraction: {result.data.extraction_method}</div>
+                    <div className={styles.resultMeta}>Pages: {result.data.page_count}</div>
+                    {result.data.pipeline_version && <div className={styles.resultMeta}>Pipeline: {result.data.pipeline_version}</div>}
+                    {result.data.language_profile && <div className={styles.resultMeta}>Profile: {result.data.language_profile}</div>}
+                    {result.data.ocr_engine && <div className={styles.resultMeta}>OCR engine: {result.data.ocr_engine}</div>}
+                    {result.data.ocr_language && <div className={styles.resultMeta}>OCR language: {result.data.ocr_language}</div>}
+                    {typeof result.data.average_ocr_confidence === "number" && (
+                      <div className={styles.resultMeta}>
+                        OCR confidence: {result.data.average_ocr_confidence.toFixed(2)}%
+                      </div>
+                    )}
+                    {result.data.low_confidence_pages && result.data.low_confidence_pages.length > 0 && (
+                      <div className={styles.resultMeta}>
+                        Low-confidence pages: {result.data.low_confidence_pages.join(", ")}
+                      </div>
+                    )}
+                  </div>
+
+                  {result.data.quality_warnings && result.data.quality_warnings.length > 0 && (
+                    <div className={styles.warningList}>
+                      {result.data.quality_warnings.map((warning, index) => (
+                        <div key={`${warning}-${index}`} className={styles.warningItem}>
+                          {warning}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className={styles.actionRow}>
+                    <button type="button" className={styles.secondaryBtn} onClick={runGenerate} disabled={!canGenerate}>
+                      <RotateCcw size={15} aria-hidden />
+                      Regenerate
+                    </button>
+                    <button type="button" className={styles.primaryBtn} onClick={downloadSelectedFormat}>
+                      <Download size={15} aria-hidden />
+                      Download {outputFormat}
+                    </button>
+                    <button type="button" className={styles.secondaryBtn} onClick={downloadAllFormats}>
+                      <Download size={15} aria-hidden />
+                      Download all
+                    </button>
+                    <button type="button" className={styles.secondaryBtn} onClick={() => void copyPreview()}>
+                      <Copy size={15} aria-hidden />
+                      {copied ? "Copied" : "Copy"}
+                    </button>
+                  </div>
+
+                  <div className={styles.previewLabel}>
+                    Preview ({selectedFormatLabel})
+                    {outputFormat === "DOCX" && <span className={styles.previewHint}> - final styling is in the downloaded DOCX</span>}
+                  </div>
+                  <pre className={styles.previewBox}>{previewText}</pre>
+                </div>
+              )
+            )}
+          </aside>
+        </div>
       </div>
+
+      <footer className={styles.footer}>
+        <div className={styles.footerInner}>
+          <span className={styles.footerText}>Built by Cheri</span>
+          <span className={styles.footerDot}>•</span>
+          <a href="https://github.com/Cherireal7" target="_blank" rel="noreferrer" className={styles.footerLink}>
+            Contact
+          </a>
+          <span className={styles.footerDot}>•</span>
+          <span className={styles.footerText}>Geez Transcribe</span>
+        </div>
+      </footer>
     </div>
   );
 }

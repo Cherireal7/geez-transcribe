@@ -42,3 +42,7 @@ next-env.d.ts
 
 # GeezTranscribe spec files
 GeezTranscribe_*.md
+
+# local agent instruction files
+AGENTS.md
+CLAUDE.md
