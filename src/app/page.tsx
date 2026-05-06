@@ -1,65 +1,175 @@
-import Image from "next/image";
+"use client";
+
+import React, { useState, useCallback } from 'react';
+import { useDropzone } from 'react-dropzone';
+import styles from './page.module.css';
+import { transcribePdf, type PipelineProgress, type PipelineResult } from '@/lib';
 
 export default function Home() {
+  const [outputFormat, setOutputFormat] = useState('JSON');
+  const [forceOcr, setForceOcr] = useState(false);
+  const [fixEncodingToggle, setFixEncodingToggle] = useState(true);
+  const [structureDetection, setStructureDetection] = useState('Auto');
+  
+  const [progress, setProgress] = useState<PipelineProgress | null>(null);
+  const [result, setResult] = useState<PipelineResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const onDrop = useCallback(async (acceptedFiles: File[]) => {
+    const file = acceptedFiles[0];
+    if (!file) return;
+    
+    setError(null);
+    setResult(null);
+    setProgress({ step: 'extracting', message: 'Starting...' });
+
+    try {
+      const res = await transcribePdf(
+        file,
+        {
+          fixEncoding: fixEncodingToggle,
+          forceOcr,
+          forceFormat: structureDetection === 'Pages' ? 'pages' : undefined
+        },
+        (p) => setProgress(p)
+      );
+      setResult(res);
+      setProgress(null);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'An error occurred during transcription');
+      setProgress(null);
+    }
+  }, [fixEncodingToggle, forceOcr, structureDetection]);
+  
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: { 'application/pdf': ['.pdf'] },
+    maxSize: 10485760, // 10MB
+  });
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <div className={styles.container}>
+      {/* Left Sidebar */}
+      <aside className={styles.sidebar}>
+        <div className={styles.brand}>GEEZ TRANSCRIBE</div>
+        <div className={styles.tagline}>Ethiopic PDF → clean JSON</div>
+        
+        <div className={styles.divider} />
+        
+        <div className={styles.sectionTitle}>Output format</div>
+        <div className={styles.segmentedControl}>
+          {['JSON', 'DOCX', 'TXT'].map(fmt => (
+            <div 
+              key={fmt}
+              className={`${styles.segmentBtn} ${outputFormat === fmt ? styles.active : ''}`}
+              onClick={() => setOutputFormat(fmt)}
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+              {fmt}
+            </div>
+          ))}
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+        
+        <div className={styles.sectionTitle}>OCR mode</div>
+        <div className={styles.toggleRow}>
+          <span className={styles.toggleLabel}>Force OCR</span>
+          <button 
+            className={`${styles.toggleSwitch} ${forceOcr ? styles.toggleOn : ''}`}
+            onClick={() => setForceOcr(!forceOcr)}
+          />
         </div>
+
+        <div className={styles.divider} style={{ margin: '1rem 0' }} />
+
+        <div className={styles.sectionTitle}>Processing</div>
+        <div className={styles.toggleRow}>
+          <span className={styles.toggleLabel}>Fix encoding</span>
+          <button 
+            className={`${styles.toggleSwitch} ${fixEncodingToggle ? styles.toggleOn : ''}`}
+            onClick={() => setFixEncodingToggle(!fixEncodingToggle)}
+          />
+        </div>
+        
+        <div className={styles.toggleRow} style={{ marginTop: '0.5rem' }}>
+          <span className={styles.toggleLabel}>Structure det.</span>
+          <button 
+            className={`${styles.toggleSwitch} ${structureDetection === 'Auto' ? styles.toggleOn : ''}`}
+            onClick={() => setStructureDetection(structureDetection === 'Auto' ? 'Pages' : 'Auto')}
+          />
+        </div>
+        
+        <div style={{ flex: 1 }} />
+        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+          Amharic · Ge'ez
+        </div>
+      </aside>
+
+      {/* Center Main */}
+      <main className={styles.main}>
+        <div {...getRootProps()} className={styles.uploadZone}>
+          <input {...getInputProps()} />
+          
+          <div className={`${styles.regMark} ${styles.tl}`} />
+          <div className={`${styles.regMark} ${styles.tr}`} />
+          <div className={`${styles.regMark} ${styles.bl}`} />
+          <div className={`${styles.regMark} ${styles.br}`} />
+          
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--border-stone)" strokeWidth="1" strokeLinecap="square" strokeLinejoin="miter" className={styles.crossGhost}>
+            {/* Minimalist geometric cross representation */}
+            <path d="M12 2v20M2 12h20M12 6h-4v-4M12 18h4v4M6 12v4h-4M18 12v-4h4" />
+          </svg>
+          
+          <div className={styles.uploadTitle}>
+            {isDragActive ? "DROP PDF NOW" : "DROP PDF HERE"}
+          </div>
+          <div className={styles.uploadSubtitle}>or click to browse</div>
+          <div className={styles.uploadSubtitle} style={{ marginTop: '1rem', opacity: 0.5 }}>
+            10MB · PDF only
+          </div>
+        </div>
+        
+        <div className={styles.pillRow}>
+          <div className={styles.pill}>Amharic</div>
+          <div className={styles.pill}>Ge'ez</div>
+        </div>
+        
+        {error && (
+          <div style={{ marginTop: '2rem', color: '#ff4d4f', fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
+            Error: {error}
+          </div>
+        )}
       </main>
+
+      {/* Right Panel */}
+      <aside className={styles.panel}>
+        {!progress && !result ? (
+          <div className={styles.emptyState}>
+            <div className={styles.ghostNumeral}>01</div>
+            <div className={styles.emptyMessage}>Output will appear here</div>
+          </div>
+        ) : progress ? (
+          <div style={{ padding: '2rem', fontFamily: 'var(--font-mono)', fontSize: '13px' }}>
+            <h3 style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>PROCESSING</h3>
+            <div style={{ color: 'var(--accent-gold)' }}>Step: {progress.step}</div>
+            {progress.message && <div>{progress.message}</div>}
+            {progress.page && progress.totalPages && (
+              <div>Page: {progress.page} / {progress.totalPages}</div>
+            )}
+          </div>
+        ) : result ? (
+          <div style={{ padding: '2rem', fontFamily: 'var(--font-mono)', fontSize: '13px', overflowY: 'auto', height: '100%' }}>
+            <h3 style={{ color: 'var(--success)', marginBottom: '1rem' }}>COMPLETE</h3>
+            <div style={{ marginBottom: '1rem' }}>Format: {result.data.format}</div>
+            <div style={{ marginBottom: '1rem' }}>Corrections: {result.data.correction_count}</div>
+            
+            <div style={{ borderTop: '1px solid var(--border-stone)', paddingTop: '1rem', marginTop: '1rem' }}>
+              <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: 'var(--text-primary)' }}>
+                {JSON.stringify(result.data, null, 2)}
+              </pre>
+            </div>
+          </div>
+        ) : null}
+      </aside>
     </div>
   );
 }
