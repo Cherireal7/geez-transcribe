@@ -34,6 +34,18 @@ interface RecentUpload {
   outputStructure?: string;
 }
 
+function readRecentUploadsFromStorage(): RecentUpload[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(RECENT_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.slice(0, MAX_RECENT_ITEMS) : [];
+  } catch {
+    return [];
+  }
+}
+
 function formatBytes(size: number): string {
   if (!Number.isFinite(size) || size <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB"];
@@ -80,17 +92,8 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
 
   const [currentFile, setCurrentFile] = useState<File | null>(null);
-  const [recentUploads, setRecentUploads] = useState<RecentUpload[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const raw = window.localStorage.getItem(RECENT_STORAGE_KEY);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed.slice(0, MAX_RECENT_ITEMS) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [recentUploads, setRecentUploads] = useState<RecentUpload[]>([]);
+  const hasHydratedRecentUploadsRef = useRef(false);
 
   const [mainPanePercent, setMainPanePercent] = useState(56);
   const [isResizing, setIsResizing] = useState(false);
@@ -102,6 +105,15 @@ export default function Home() {
   }, [currentFile]);
 
   useEffect(() => {
+    const raf = window.requestAnimationFrame(() => {
+      hasHydratedRecentUploadsRef.current = true;
+      setRecentUploads(readRecentUploadsFromStorage());
+    });
+    return () => window.cancelAnimationFrame(raf);
+  }, []);
+
+  useEffect(() => {
+    if (!hasHydratedRecentUploadsRef.current) return;
     if (typeof window === "undefined") return;
     window.localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(recentUploads.slice(0, MAX_RECENT_ITEMS)));
   }, [recentUploads]);
@@ -573,11 +585,11 @@ export default function Home() {
       <footer className={styles.footer}>
         <div className={styles.footerInner}>
           <span className={styles.footerText}>Built by Cheri</span>
-          <span className={styles.footerDot}>•</span>
+          <span className={styles.footerDot}>|</span>
           <a href="https://github.com/Cherireal7" target="_blank" rel="noreferrer" className={styles.footerLink}>
             Contact
           </a>
-          <span className={styles.footerDot}>•</span>
+          <span className={styles.footerDot}>|</span>
           <span className={styles.footerText}>Geez Transcribe</span>
         </div>
       </footer>
