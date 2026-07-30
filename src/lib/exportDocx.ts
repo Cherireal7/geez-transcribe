@@ -19,6 +19,11 @@ import type { TranscribeResult, QAItem } from './structureOutput'
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
+function stripSourceExtension(name: string): string {
+  return name.replace(/\.(pdf|png|jpg|jpeg|webp|bmp|tif|tiff)$/i, '')
+}
+
+
 function heading1(text: string): Paragraph {
   return new Paragraph({
     heading: HeadingLevel.HEADING_1,
@@ -206,7 +211,7 @@ export async function downloadDocx(result: TranscribeResult): Promise<void> {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = result.source_file.replace(/\.pdf$/i, '') + '_transcribed.docx'
+  a.download = stripSourceExtension(result.source_file) + '_transcribed.docx'
   a.click()
   URL.revokeObjectURL(url)
 }
@@ -220,7 +225,7 @@ export function downloadJson(result: TranscribeResult): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = result.source_file.replace(/\.pdf$/i, '') + '_transcribed.json'
+  a.download = stripSourceExtension(result.source_file) + '_transcribed.json'
   a.click()
   URL.revokeObjectURL(url)
 }
@@ -245,7 +250,7 @@ export function downloadTxt(result: TranscribeResult): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = result.source_file.replace(/\.pdf$/i, '') + '_transcribed.txt'
+  a.download = stripSourceExtension(result.source_file) + '_transcribed.txt'
   a.click()
   URL.revokeObjectURL(url)
 }
