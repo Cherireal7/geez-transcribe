@@ -2,49 +2,95 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDropzone, type FileRejection } from "react-dropzone";
-import { Copy, Download, FileCode, FileText, FileType, GripVertical, History, Play, RotateCcw, Upload } from "lucide-react";
+import {
+  Copy,
+  Download,
+  FileCode,
+  FileText,
+  FileType,
+  GripVertical,
+  History,
+  Play,
+  RotateCcw,
+  Sparkles,
+  StopCircle,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import styles from "./page.module.css";
 import {
   OCR_PROFILES,
+  SUPPORTED_IMAGE_EXTENSIONS,
+  detectLanguageProfile,
   downloadDocx,
   downloadJson,
   downloadTxt,
-  transcribePdf,
+  isImageFile,
+  isSupportedFile,
+  mergeEditsIntoResult,
+  recentUploadsStore,
+  transcribeFile,
   type OcrProfileId,
   type PipelineProgress,
   type PipelineResult,
+  type RecentUploadEntry,
   type TranscribeResult,
 } from "@/lib";
 
 const MAX_FILE_SIZE_MB = 25;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
-const MAX_RECENT_ITEMS = 8;
-const RECENT_STORAGE_KEY = "geez-transcribe-recent";
+const SAMPLE_PDF_URL = "/samples/geez-sample.pdf";
+const SAMPLE_PDF_NAME = "geez-sample.pdf";
+const SAMPLE_IMAGE_NAME = "geez-sample.png";
+const SAMPLE_LINES = [
+  "እግዚአብሔር በመጀመሪያ ሰማይንና ምድርን ፈጠረ።",
+  "ምድርም ባዶና ጨለማ ነበረች፤ የእግዚአብሔር",
+  "መንፈስም በውኃው ላይ ይንቀሳቀስ ነበር።",
+  "እግዚአብሔርም አለ፦ ብርሃን ይሁን፤ ብርሃንም",
+  "ሆነ። እግዚአብሔርም ብርሃኑ ጥሩ እንደሆነ አየ።",
+  "",
+  "ዘፍጥረት ፩፥፩–፬",
+];
 
-type OutputFormat = "JSON" | "DOCX" | "TXT";
-type StructureDetection = "Auto" | "Pages";
-
-interface RecentUpload {
-  id: string;
-  name: string;
-  size: number;
-  uploadedAt: string;
-  pageCount?: number;
-  extractionMethod?: string;
-  outputStructure?: string;
-}
-
-function readRecentUploadsFromStorage(): RecentUpload[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(RECENT_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.slice(0, MAX_RECENT_ITEMS) : [];
-  } catch {
-    return [];
+async function synthesizeSampleImage(): Promise<File | null> {
+  if (typeof document === "undefined") return null;
+  const width = 1400;
+  const height = 900;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = "#111111";
+  ctx.textBaseline = "top";
+  ctx.font = "700 44px 'Noto Sans Ethiopic', 'Nyala', 'Kefa', serif";
+  const paddingX = 80;
+  let y = 90;
+  for (const line of SAMPLE_LINES) {
+    ctx.fillText(line, paddingX, y);
+    y += 78;
   }
+  ctx.font = "italic 22px 'Georgia', serif";
+  ctx.fillStyle = "#555555";
+  ctx.fillText("Sample generated for Geez Transcribe · rendered client-side", paddingX, height - 60);
+  return await new Promise<File | null>((resolve) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        resolve(null);
+        return;
+      }
+      resolve(new File([blob], SAMPLE_IMAGE_NAME, { type: "image/png" }));
+    }, "image/png");
+  });
 }
+
+type DownloadFormat = "DOCX" | "TXT" | "JSON";
+type StructureDetection = "Auto" | "Pages";
+type WorkspaceMode = "edit" | "json";
+
+type EditMap = Record<number, string>;
 
 function formatBytes(size: number): string {
   if (!Number.isFinite(size) || size <= 0) return "0 B";
@@ -64,21 +110,81 @@ function asReadableTime(isoDate: string): string {
   });
 }
 
-function toPlainTextOutput(result: TranscribeResult): string {
-  if (result.format === "numbered_qa" && result.questions) {
-    return result.questions.map((q) => `${q.number}. ${q.question}\n${q.answer}`).join("\n\n");
+function confidenceColorClass(confidence: number | undefined): string {
+  if (typeof confidence !== "number") return styles.chipNeutral;
+  if (confidence >= 80) return styles.chipHigh;
+  if (confidence >= 65) return styles.chipMedium;
+  return styles.chipLow;
+}
+
+interface EditablePage {
+  page: number;
+  original: string;
+  content: string;
+  confidence?: number;
+  dominantScript?: string;
+  headerLabel: string;
+}
+
+function buildEditablePages(result: TranscribeResult): EditablePage[] {
+  const confidenceByPage = new Map<number, number>();
+  if (result.ocr_page_confidence) {
+    for (const metric of result.ocr_page_confidence) {
+      confidenceByPage.set(metric.page, metric.confidence);
+    }
   }
-  if (result.format === "sectioned" && result.sections) {
-    return result.sections.map((s) => `== ${s.title} ==\n\n${s.content}`).join("\n\n---\n\n");
-  }
+
   if (result.format === "pages" && result.pages) {
-    return result.pages.map((p) => `[Page ${p.page}]\n${p.content}`).join("\n\n");
+    return result.pages.map((page) => {
+      const script = detectLanguageProfile(page.content).dominant;
+      return {
+        page: page.page,
+        original: page.content,
+        content: page.content,
+        confidence: confidenceByPage.get(page.page),
+        dominantScript: script,
+        headerLabel: `Page ${page.page}`,
+      };
+    });
   }
-  return "";
+
+  if (result.format === "numbered_qa" && result.questions) {
+    return result.questions.map((q) => {
+      const merged = `${q.question}\n${q.answer}`.trim();
+      return {
+        page: q.number,
+        original: merged,
+        content: merged,
+        headerLabel: `#${q.number}`,
+        dominantScript: detectLanguageProfile(merged).dominant,
+      };
+    });
+  }
+
+  if (result.format === "sectioned" && result.sections) {
+    return result.sections.map((section, index) => ({
+      page: index + 1,
+      original: section.content,
+      content: section.content,
+      headerLabel: section.title || `Section ${index + 1}`,
+      dominantScript: detectLanguageProfile(section.content).dominant,
+    }));
+  }
+
+  return [];
+}
+
+function applyEditsToResult(result: TranscribeResult, edits: EditMap): TranscribeResult {
+  return mergeEditsIntoResult(result, edits);
+}
+
+function editsAreClean(edits: EditMap): boolean {
+  return Object.keys(edits).length === 0;
 }
 
 export default function Home() {
-  const [outputFormat, setOutputFormat] = useState<OutputFormat>("JSON");
+  const [downloadFormat, setDownloadFormat] = useState<DownloadFormat>("DOCX");
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("edit");
   const [forceOcr, setForceOcr] = useState(false);
   const [fixEncodingToggle, setFixEncodingToggle] = useState(true);
   const [structureDetection, setStructureDetection] = useState<StructureDetection>("Auto");
@@ -92,31 +198,34 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
 
   const [currentFile, setCurrentFile] = useState<File | null>(null);
-  const [recentUploads, setRecentUploads] = useState<RecentUpload[]>([]);
-  const hasHydratedRecentUploadsRef = useRef(false);
+  const [recentUploads, setRecentUploads] = useState<RecentUploadEntry[]>([]);
+
+  const [editablePages, setEditablePages] = useState<EditablePage[]>([]);
+  const [edits, setEdits] = useState<EditMap>({});
 
   const [mainPanePercent, setMainPanePercent] = useState(56);
   const [isResizing, setIsResizing] = useState(false);
+  const [pdfHashPage, setPdfHashPage] = useState<number | null>(null);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const currentPdfUrl = useMemo(() => {
     if (!currentFile) return null;
     return URL.createObjectURL(currentFile);
   }, [currentFile]);
 
-  useEffect(() => {
-    const raf = window.requestAnimationFrame(() => {
-      hasHydratedRecentUploadsRef.current = true;
-      setRecentUploads(readRecentUploadsFromStorage());
-    });
-    return () => window.cancelAnimationFrame(raf);
-  }, []);
+  const isImage = useMemo(() => (currentFile ? isImageFile(currentFile) : false), [currentFile]);
 
   useEffect(() => {
-    if (!hasHydratedRecentUploadsRef.current) return;
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(recentUploads.slice(0, MAX_RECENT_ITEMS)));
-  }, [recentUploads]);
+    let cancelled = false;
+    void (async () => {
+      const entries = await recentUploadsStore.list();
+      if (!cancelled) setRecentUploads(entries);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!currentPdfUrl) return;
@@ -149,15 +258,36 @@ export default function Home() {
     };
   }, [isResizing]);
 
+  const mergedResult = useMemo(() => {
+    if (!result) return null;
+    return editsAreClean(edits) ? result.data : applyEditsToResult(result.data, edits);
+  }, [edits, result]);
+
+  const jsonPreviewText = useMemo(() => {
+    if (!mergedResult) return "";
+    return JSON.stringify(mergedResult, null, 2);
+  }, [mergedResult]);
+
+  const iframeSrc = useMemo(() => {
+    if (!currentPdfUrl || isImage) return null;
+    return pdfHashPage ? `${currentPdfUrl}#page=${pdfHashPage}` : currentPdfUrl;
+  }, [currentPdfUrl, isImage, pdfHashPage]);
+
   const runTranscription = useCallback(
     async (file: File) => {
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
       setError(null);
       setCopied(false);
       setResult(null);
+      setEdits({});
+      setEditablePages([]);
       setProgress({ step: "extracting", message: "Starting..." });
 
       try {
-        const response = await transcribePdf(
+        const response = await transcribeFile(
           file,
           {
             fixEncoding: fixEncodingToggle,
@@ -166,61 +296,83 @@ export default function Home() {
             lowConfidenceThreshold: confidenceThreshold,
             retryLowConfidence,
             forceFormat: structureDetection === "Pages" ? "pages" : undefined,
+            signal: controller.signal,
           },
           (p) => setProgress(p),
         );
 
         setResult(response);
+        setEditablePages(buildEditablePages(response.data));
         setProgress(null);
-        setRecentUploads((prev) => {
-          const next: RecentUpload = {
-            id: `${Date.now()}-${file.name}`,
-            name: file.name,
-            size: file.size,
-            uploadedAt: new Date().toISOString(),
-            pageCount: response.data.page_count,
-            extractionMethod: response.data.extraction_method,
-            outputStructure: response.data.format,
-          };
-          return [next, ...prev.filter((item) => item.name !== file.name)].slice(0, MAX_RECENT_ITEMS);
-        });
+
+        const entry: RecentUploadEntry = {
+          id: `${Date.now()}-${file.name}`,
+          name: file.name,
+          size: file.size,
+          uploadedAt: new Date().toISOString(),
+          pageCount: response.data.page_count,
+          extractionMethod: response.data.extraction_method,
+          outputStructure: response.data.format,
+          averageConfidence: response.data.average_ocr_confidence,
+          kind: response.kind,
+        };
+        await recentUploadsStore.put(entry);
+        const refreshed = await recentUploadsStore.list();
+        setRecentUploads(refreshed);
       } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : "An error occurred during transcription";
-        setError(message);
+        if (err instanceof DOMException && err.name === "AbortError") {
+          setError("Transcription cancelled.");
+        } else {
+          const message = err instanceof Error ? err.message : "An error occurred during transcription";
+          setError(message);
+        }
         setProgress(null);
+      } finally {
+        if (abortRef.current === controller) {
+          abortRef.current = null;
+        }
       }
     },
     [confidenceThreshold, fixEncodingToggle, forceOcr, ocrProfileId, retryLowConfidence, structureDetection],
+  );
+
+  const acceptFile = useCallback(
+    (file: File) => {
+      if (!isSupportedFile(file)) {
+        setError("Unsupported file type. Upload a PDF or image (PNG, JPG, WebP).");
+        return;
+      }
+      setCurrentFile(file);
+      setPdfHashPage(null);
+      void runTranscription(file);
+    },
+    [runTranscription],
   );
 
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
       const file = acceptedFiles[0];
       if (!file) return;
-      setCurrentFile(file);
-      void runTranscription(file);
+      acceptFile(file);
     },
-    [runTranscription],
+    [acceptFile],
   );
 
   const onDropRejected = useCallback((rejections: FileRejection[]) => {
     const first = rejections[0];
     const firstError = first?.errors[0];
     if (!firstError) {
-      setError("Unable to read the file. Please upload a PDF.");
+      setError("Unable to read the file. Please upload a PDF or image.");
       return;
     }
-
     if (firstError.code === "file-too-large") {
       setError(`File too large. Maximum supported size is ${MAX_FILE_SIZE_MB}MB.`);
       return;
     }
-
     if (firstError.code === "file-invalid-type") {
-      setError("Unsupported file type. Please upload a PDF file.");
+      setError("Unsupported file type. Upload a PDF or image (PNG, JPG, WebP).");
       return;
     }
-
     setError(firstError.message);
   }, []);
 
@@ -229,52 +381,71 @@ export default function Home() {
     onDropRejected,
     noClick: true,
     multiple: false,
-    accept: { "application/pdf": [".pdf"] },
+    accept: {
+      "application/pdf": [".pdf"],
+      "image/png": [".png"],
+      "image/jpeg": [".jpg", ".jpeg"],
+      "image/webp": [".webp"],
+      "image/bmp": [".bmp"],
+    },
     maxSize: MAX_FILE_SIZE_BYTES,
   });
 
-  const previewText = useMemo(() => {
-    if (!result) return "";
-
-    if (outputFormat === "JSON") {
-      return JSON.stringify(result.data, null, 2);
+  const loadSample = useCallback(async () => {
+    setError(null);
+    try {
+      const response = await fetch(SAMPLE_PDF_URL);
+      if (response.ok) {
+        const blob = await response.blob();
+        const sampleFile = new File([blob], SAMPLE_PDF_NAME, {
+          type: blob.type || "application/pdf",
+        });
+        acceptFile(sampleFile);
+        return;
+      }
+    } catch {
+      // fall through to synthesized image
     }
-
-    return toPlainTextOutput(result.data);
-  }, [outputFormat, result]);
-
-  const selectedFormatLabel = useMemo(() => {
-    if (outputFormat === "DOCX") return "Formatted DOCX";
-    if (outputFormat === "TXT") return "Plain Text";
-    return "JSON";
-  }, [outputFormat]);
-
-  const downloadSelectedFormat = useCallback(() => {
-    if (!result) return;
-    if (outputFormat === "JSON") {
-      downloadJson(result.data);
+    const synthesized = await synthesizeSampleImage();
+    if (!synthesized) {
+      setError("Could not generate a sample. Please upload your own PDF or image.");
       return;
     }
-    if (outputFormat === "DOCX") {
-      void downloadDocx(result.data);
-      return;
-    }
-    downloadTxt(result.data);
-  }, [outputFormat, result]);
+    acceptFile(synthesized);
+  }, [acceptFile]);
 
-  const downloadAllFormats = useCallback(() => {
-    if (!result) return;
-    downloadJson(result.data);
-    void downloadDocx(result.data);
-    downloadTxt(result.data);
-  }, [result]);
+  const cancelJob = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
 
-  const copyPreview = useCallback(async () => {
-    if (!previewText) return;
-    await navigator.clipboard.writeText(previewText);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1200);
-  }, [previewText]);
+  const updatePageContent = useCallback((page: number, value: string) => {
+    setEditablePages((prev) => prev.map((p) => (p.page === page ? { ...p, content: value } : p)));
+    setEdits((prev) => ({ ...prev, [page]: value }));
+  }, []);
+
+  const resetPage = useCallback((page: number) => {
+    setEditablePages((prev) =>
+      prev.map((p) => (p.page === page ? { ...p, content: p.original } : p)),
+    );
+    setEdits((prev) => {
+      const next = { ...prev };
+      delete next[page];
+      return next;
+    });
+  }, []);
+
+  const resetAllEdits = useCallback(() => {
+    setEditablePages((prev) => prev.map((p) => ({ ...p, content: p.original })));
+    setEdits({});
+  }, []);
+
+  const jumpToPage = useCallback(
+    (page: number) => {
+      if (!currentFile || isImage) return;
+      setPdfHashPage(page);
+    },
+    [currentFile, isImage],
+  );
 
   const runGenerate = useCallback(() => {
     if (!currentFile || progress) return;
@@ -284,23 +455,55 @@ export default function Home() {
   const canGenerate = Boolean(currentFile) && !progress;
   const showRegenerate = Boolean(result);
 
+  const downloadSelectedFormat = useCallback(() => {
+    if (!mergedResult) return;
+    if (downloadFormat === "JSON") return downloadJson(mergedResult);
+    if (downloadFormat === "DOCX") return void downloadDocx(mergedResult);
+    return downloadTxt(mergedResult);
+  }, [downloadFormat, mergedResult]);
+
+  const downloadAllFormats = useCallback(() => {
+    if (!mergedResult) return;
+    downloadJson(mergedResult);
+    void downloadDocx(mergedResult);
+    downloadTxt(mergedResult);
+  }, [mergedResult]);
+
+  const copyPreview = useCallback(async () => {
+    if (!mergedResult) return;
+    const text = workspaceMode === "json" ? jsonPreviewText : editablePages.map((p) => `${p.headerLabel}\n${p.content}`).join("\n\n---\n\n");
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  }, [editablePages, jsonPreviewText, mergedResult, workspaceMode]);
+
+  const clearRecent = useCallback(async () => {
+    await recentUploadsStore.clear();
+    setRecentUploads([]);
+  }, []);
+
+  const supportedExtSummary = useMemo(() => {
+    const exts = [".pdf", ...SUPPORTED_IMAGE_EXTENSIONS];
+    return exts.join(" · ").replace(/^\./, "").replaceAll(" · .", " · ");
+  }, []);
+
   return (
     <div className={styles.pageRoot}>
       <div className={styles.container}>
         <aside className={styles.sidebar}>
           <div className={styles.brand}>GEEZ TRANSCRIBE</div>
-          <div className={styles.tagline}>Ethiopic PDF to structured output</div>
+          <div className={styles.tagline}>Ethiopic PDF & image to structured output</div>
 
           <div className={styles.divider} />
 
-          <div className={styles.sectionTitle}>Output file</div>
+          <div className={styles.sectionTitle}>Download format</div>
           <div className={styles.segmentedControl}>
-            {(["JSON", "DOCX", "TXT"] as OutputFormat[]).map((format) => (
+            {(["DOCX", "TXT", "JSON"] as DownloadFormat[]).map((format) => (
               <button
                 key={format}
                 type="button"
-                className={`${styles.segmentBtn} ${outputFormat === format ? styles.active : ""}`}
-                onClick={() => setOutputFormat(format)}
+                className={`${styles.segmentBtn} ${downloadFormat === format ? styles.active : ""}`}
+                onClick={() => setDownloadFormat(format)}
               >
                 {format === "JSON" && <FileCode size={14} aria-hidden />}
                 {format === "DOCX" && <FileType size={14} aria-hidden />}
@@ -390,14 +593,24 @@ export default function Home() {
           </div>
 
           <div className={styles.sectionTitle}>Limits</div>
-          <div className={styles.limitText}>Max file size: {MAX_FILE_SIZE_MB}MB per PDF.</div>
+          <div className={styles.limitText}>Accepts {supportedExtSummary}, up to {MAX_FILE_SIZE_MB}MB.</div>
           <div className={styles.limitText}>OCR runs in browser and depends on device memory and CPU.</div>
 
           <div className={styles.divider} />
 
           <div className={styles.recentHeader}>
             <History size={14} aria-hidden />
-            <span className={styles.sectionTitle}>Recent uploads</span>
+            <span className={styles.sectionTitle}>Recent</span>
+            {recentUploads.length > 0 && (
+              <button
+                type="button"
+                className={styles.linkBtn}
+                onClick={() => void clearRecent()}
+                aria-label="Clear recent uploads"
+              >
+                Clear
+              </button>
+            )}
           </div>
           {recentUploads.length === 0 ? (
             <div className={styles.recentEmpty}>No recent files yet.</div>
@@ -410,15 +623,18 @@ export default function Home() {
                     {formatBytes(item.size)} | {asReadableTime(item.uploadedAt)}
                   </div>
                   <div className={styles.recentMeta}>
-                    {item.pageCount ? `${item.pageCount} pages` : "Pages unknown"} | {item.extractionMethod ?? "method"} |{" "}
-                    {item.outputStructure ?? "format"}
+                    {item.pageCount ? `${item.pageCount} pages` : "Pages unknown"} |{" "}
+                    {item.extractionMethod ?? "method"} |{" "}
+                    {typeof item.averageConfidence === "number"
+                      ? `${Math.round(item.averageConfidence)}% confidence`
+                      : item.outputStructure ?? "format"}
                   </div>
                 </div>
               ))}
             </div>
           )}
 
-          <div className={styles.sidebarFoot}>Amharic | Geez</div>
+          <div className={styles.sidebarFoot}>Amharic · Ge&apos;ez · Greek · Hebrew</div>
         </aside>
 
         <div className={styles.workspace} ref={workspaceRef}>
@@ -430,47 +646,75 @@ export default function Home() {
           >
             <input {...getInputProps()} />
 
-            {isDragActive && <div className={styles.dragOverlay}>Drop PDF to start transcription</div>}
+            {isDragActive && <div className={styles.dragOverlay}>Drop PDF or image to start</div>}
 
-            {!currentPdfUrl ? (
+            {!currentFile ? (
               <div className={styles.uploadZone}>
                 <Upload size={36} aria-hidden />
-                <div className={styles.uploadTitle}>Drop PDF here</div>
-                <div className={styles.uploadSubtitle}>or choose a file from your device</div>
-                <button type="button" className={styles.primaryBtn} onClick={open}>
-                  <Upload size={15} aria-hidden />
-                  Select PDF
-                </button>
-                <div className={styles.uploadMeta}>PDF only | up to {MAX_FILE_SIZE_MB}MB</div>
+                <div className={styles.uploadTitle}>Drop a PDF or image</div>
+                <div className={styles.uploadSubtitle}>
+                  or choose a file from your device
+                </div>
+                <div className={styles.uploadActions}>
+                  <button type="button" className={styles.primaryBtn} onClick={open}>
+                    <Upload size={15} aria-hidden />
+                    Select file
+                  </button>
+                  <button type="button" className={styles.secondaryBtn} onClick={() => void loadSample()}>
+                    <Sparkles size={15} aria-hidden />
+                    Try a sample
+                  </button>
+                </div>
+                <div className={styles.uploadMeta}>
+                  PDF / PNG / JPG / WebP · up to {MAX_FILE_SIZE_MB}MB
+                </div>
               </div>
             ) : (
               <div className={styles.pdfShell}>
                 <div className={styles.pdfHeader}>
                   <div>
                     <div className={styles.pdfName}>{currentFile?.name}</div>
-                    <div className={styles.pdfMeta}>{currentFile ? formatBytes(currentFile.size) : "-"}</div>
+                    <div className={styles.pdfMeta}>
+                      {currentFile ? formatBytes(currentFile.size) : "-"}
+                      {isImage ? " · image" : " · PDF"}
+                    </div>
                   </div>
                   <div className={styles.pdfHeaderActions}>
-                    <button type="button" className={styles.primaryBtn} onClick={runGenerate} disabled={!canGenerate}>
-                      {showRegenerate ? <RotateCcw size={15} aria-hidden /> : <Play size={15} aria-hidden />}
-                      {showRegenerate ? "Regenerate" : "Generate"}
-                    </button>
+                    {progress ? (
+                      <button type="button" className={styles.dangerBtn} onClick={cancelJob}>
+                        <StopCircle size={15} aria-hidden />
+                        Cancel
+                      </button>
+                    ) : (
+                      <button type="button" className={styles.primaryBtn} onClick={runGenerate} disabled={!canGenerate}>
+                        {showRegenerate ? <RotateCcw size={15} aria-hidden /> : <Play size={15} aria-hidden />}
+                        {showRegenerate ? "Regenerate" : "Generate"}
+                      </button>
+                    )}
                     <button type="button" className={styles.secondaryBtn} onClick={open}>
-                      Replace PDF
+                      Replace
                     </button>
                   </div>
                 </div>
                 <div className={styles.pdfFrameWrap}>
-                  <iframe
-                    src={currentPdfUrl}
-                    title={currentFile?.name ?? "Uploaded PDF preview"}
-                    className={styles.pdfFrame}
-                  />
+                  {isImage ? (
+                    <img
+                      src={currentPdfUrl ?? undefined}
+                      alt={currentFile?.name ?? "Uploaded image"}
+                      className={styles.imagePreview}
+                    />
+                  ) : iframeSrc ? (
+                    <iframe
+                      src={iframeSrc}
+                      title={currentFile?.name ?? "Uploaded PDF preview"}
+                      className={styles.pdfFrame}
+                    />
+                  ) : null}
                 </div>
               </div>
             )}
 
-            {error && <div className={styles.errorBanner}>Error: {error}</div>}
+            {error && <div className={styles.errorBanner}>{error}</div>}
           </main>
 
           <button
@@ -485,7 +729,7 @@ export default function Home() {
                 setMainPanePercent((prev) => Math.min(72, prev + 2));
               }
             }}
-            aria-label="Resize PDF and output panels"
+            aria-label="Resize source and output panels"
           >
             <GripVertical size={16} aria-hidden />
           </button>
@@ -515,35 +759,51 @@ export default function Home() {
                     </span>
                   </div>
                 )}
+                <div className={styles.progressActions}>
+                  <button type="button" className={styles.dangerBtn} onClick={cancelJob}>
+                    <StopCircle size={15} aria-hidden />
+                    Cancel
+                  </button>
+                </div>
               </div>
             ) : (
-              result && (
+              result && mergedResult && (
                 <div className={styles.panelContent}>
                   <div className={styles.resultHead}>
                     <h3 className={styles.successHeading}>Complete</h3>
-                    <div className={styles.resultMeta}>Structure: {result.data.format}</div>
-                    <div className={styles.resultMeta}>Corrections: {result.data.correction_count}</div>
-                    <div className={styles.resultMeta}>Extraction: {result.data.extraction_method}</div>
-                    <div className={styles.resultMeta}>Pages: {result.data.page_count}</div>
-                    {result.data.pipeline_version && <div className={styles.resultMeta}>Pipeline: {result.data.pipeline_version}</div>}
-                    {result.data.language_profile && <div className={styles.resultMeta}>Profile: {result.data.language_profile}</div>}
-                    {result.data.ocr_engine && <div className={styles.resultMeta}>OCR engine: {result.data.ocr_engine}</div>}
-                    {result.data.ocr_language && <div className={styles.resultMeta}>OCR language: {result.data.ocr_language}</div>}
-                    {typeof result.data.average_ocr_confidence === "number" && (
+                    <div className={styles.resultMeta}>Structure: {mergedResult.format}</div>
+                    <div className={styles.resultMeta}>Corrections: {mergedResult.correction_count}</div>
+                    <div className={styles.resultMeta}>Extraction: {mergedResult.extraction_method}</div>
+                    <div className={styles.resultMeta}>Pages: {mergedResult.page_count}</div>
+                    {mergedResult.language_profile && (
+                      <div className={styles.resultMeta}>Profile: {mergedResult.language_profile}</div>
+                    )}
+                    {typeof mergedResult.average_ocr_confidence === "number" && (
                       <div className={styles.resultMeta}>
-                        OCR confidence: {result.data.average_ocr_confidence.toFixed(2)}%
+                        OCR confidence: {mergedResult.average_ocr_confidence.toFixed(1)}%
                       </div>
                     )}
-                    {result.data.low_confidence_pages && result.data.low_confidence_pages.length > 0 && (
-                      <div className={styles.resultMeta}>
-                        Low-confidence pages: {result.data.low_confidence_pages.join(", ")}
+                    {mergedResult.low_confidence_pages && mergedResult.low_confidence_pages.length > 0 && (
+                      <div className={styles.chipRow}>
+                        <span className={styles.chipRowLabel}>Low-confidence:</span>
+                        {mergedResult.low_confidence_pages.map((n) => (
+                          <button
+                            key={n}
+                            type="button"
+                            className={`${styles.pageChip} ${styles.chipLow}`}
+                            onClick={() => jumpToPage(n)}
+                            aria-label={`Jump PDF to page ${n}`}
+                          >
+                            p{n}
+                          </button>
+                        ))}
                       </div>
                     )}
                   </div>
 
-                  {result.data.quality_warnings && result.data.quality_warnings.length > 0 && (
+                  {mergedResult.quality_warnings && mergedResult.quality_warnings.length > 0 && (
                     <div className={styles.warningList}>
-                      {result.data.quality_warnings.map((warning, index) => (
+                      {mergedResult.quality_warnings.map((warning, index) => (
                         <div key={`${warning}-${index}`} className={styles.warningItem}>
                           {warning}
                         </div>
@@ -558,23 +818,102 @@ export default function Home() {
                     </button>
                     <button type="button" className={styles.primaryBtn} onClick={downloadSelectedFormat}>
                       <Download size={15} aria-hidden />
-                      Download {outputFormat}
+                      Download {downloadFormat}
                     </button>
                     <button type="button" className={styles.secondaryBtn} onClick={downloadAllFormats}>
                       <Download size={15} aria-hidden />
-                      Download all
+                      All formats
                     </button>
                     <button type="button" className={styles.secondaryBtn} onClick={() => void copyPreview()}>
                       <Copy size={15} aria-hidden />
                       {copied ? "Copied" : "Copy"}
                     </button>
+                    {!editsAreClean(edits) && (
+                      <button type="button" className={styles.secondaryBtn} onClick={resetAllEdits}>
+                        <Trash2 size={15} aria-hidden />
+                        Reset edits
+                      </button>
+                    )}
                   </div>
 
-                  <div className={styles.previewLabel}>
-                    Preview ({selectedFormatLabel})
-                    {outputFormat === "DOCX" && <span className={styles.previewHint}> - final styling is in the downloaded DOCX</span>}
+                  <div className={styles.modeSwitcher}>
+                    <button
+                      type="button"
+                      className={`${styles.modeBtn} ${workspaceMode === "edit" ? styles.active : ""}`}
+                      onClick={() => setWorkspaceMode("edit")}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.modeBtn} ${workspaceMode === "json" ? styles.active : ""}`}
+                      onClick={() => setWorkspaceMode("json")}
+                    >
+                      JSON
+                    </button>
+                    {!editsAreClean(edits) && (
+                      <span className={styles.editBadge}>
+                        {Object.keys(edits).length} edited
+                      </span>
+                    )}
                   </div>
-                  <pre className={styles.previewBox}>{previewText}</pre>
+
+                  {workspaceMode === "json" ? (
+                    <pre className={styles.previewBox}>{jsonPreviewText}</pre>
+                  ) : (
+                    <div className={styles.pageList}>
+                      {editablePages.length === 0 ? (
+                        <div className={styles.recentEmpty}>No editable content.</div>
+                      ) : (
+                        editablePages.map((page) => {
+                          const edited = edits[page.page] !== undefined;
+                          return (
+                            <div key={page.page} className={styles.pageCard}>
+                              <div className={styles.pageCardHeader}>
+                                <button
+                                  type="button"
+                                  className={styles.pageLabelBtn}
+                                  onClick={() => jumpToPage(page.page)}
+                                  disabled={isImage || !currentFile}
+                                >
+                                  {page.headerLabel}
+                                </button>
+                                {typeof page.confidence === "number" && (
+                                  <span className={`${styles.pageChip} ${confidenceColorClass(page.confidence)}`}>
+                                    {Math.round(page.confidence)}%
+                                  </span>
+                                )}
+                                {page.dominantScript && page.dominantScript !== "unknown" && (
+                                  <span className={`${styles.pageChip} ${styles.chipNeutral}`}>
+                                    {page.dominantScript}
+                                  </span>
+                                )}
+                                {edited && (
+                                  <>
+                                    <span className={styles.editedBadge}>edited</span>
+                                    <button
+                                      type="button"
+                                      className={styles.linkBtn}
+                                      onClick={() => resetPage(page.page)}
+                                    >
+                                      revert
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                              <textarea
+                                className={styles.pageTextarea}
+                                value={page.content}
+                                onChange={(event) => updatePageContent(page.page, event.target.value)}
+                                spellCheck={false}
+                                rows={Math.max(4, Math.min(18, page.content.split("\n").length + 1))}
+                              />
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             )}
