@@ -5,12 +5,12 @@
  */
 
 import { extractPdfText } from './extractPdf'
-import { ocrPdf, isAbortError, type OcrProfileId } from './ocrPdf'
+import { ocrPdf, isAbortError, type OcrProfileId, type PageSegMode } from './ocrPdf'
 import { ocrImage, isImageFile } from './ocrImage'
 import { structureOutput, type TranscribeResult, type StructureFormat } from './structureOutput'
 import { generateDiff, type CorrectionEntry } from './fixEncoding'
 
-const DEFAULT_PIPELINE_VERSION = 'workspace-v1'
+const DEFAULT_PIPELINE_VERSION = 'workspace-v2'
 
 export interface PipelineOptions {
   fixEncoding?: boolean            // default true
@@ -19,6 +19,9 @@ export interface PipelineOptions {
   ocrProfileId?: OcrProfileId      // default 'ethiopic'
   lowConfidenceThreshold?: number  // default 70
   retryLowConfidence?: boolean     // default true
+  highAccuracy?: boolean           // default true (tessdata_best)
+  applyClahe?: boolean             // default true
+  psm?: PageSegMode                // default 'auto'
   forceFormat?: StructureFormat    // override auto-detection
   extraWordMap?: Record<string, string>
   pipelineVersion?: string
@@ -72,6 +75,9 @@ export async function transcribeFile(
     ocrProfileId,
     lowConfidenceThreshold,
     retryLowConfidence = true,
+    highAccuracy = true,
+    applyClahe = true,
+    psm = 'auto',
     forceFormat,
     extraWordMap = {},
     pipelineVersion = DEFAULT_PIPELINE_VERSION,
@@ -108,6 +114,9 @@ export async function transcribeFile(
       profileId: ocrProfileId,
       lowConfidenceThreshold,
       retryLowConfidence,
+      highAccuracy,
+      applyClahe,
+      psm,
       signal,
     }
 

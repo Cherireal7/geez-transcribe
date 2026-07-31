@@ -17,6 +17,7 @@ export interface EnhanceOptions {
   binarize?: boolean         // adaptive threshold pass
   deskew?: boolean           // rotate to align text baselines
   upscaleMinLongEdge?: number  // 0 disables; otherwise 2x if long edge < this
+  clahe?: boolean            // contrast-limited adaptive histogram equalization
 }
 
 export interface EnhanceResult {
@@ -24,20 +25,23 @@ export interface EnhanceResult {
   appliedDeskewDegrees: number
   appliedUpscale: 1 | 2
   binarized: boolean
+  claheApplied: boolean
 }
 
-const DEFAULT_UPSCALE_THRESHOLD = 1400
+const DEFAULT_UPSCALE_THRESHOLD = 2200
 
 export function enhanceCanvas(source: HTMLCanvasElement, options: EnhanceOptions = {}): EnhanceResult {
   const {
     binarize = false,
     deskew = true,
     upscaleMinLongEdge = DEFAULT_UPSCALE_THRESHOLD,
+    clahe = true,
   } = options
 
   let working = toGrayscale(source)
   let appliedDeskewDegrees = 0
   let appliedUpscale: 1 | 2 = 1
+  let claheApplied = false
 
   if (deskew) {
     const angle = estimateSkewDegrees(working)
@@ -53,6 +57,11 @@ export function enhanceCanvas(source: HTMLCanvasElement, options: EnhanceOptions
     appliedUpscale = 2
   }
 
+  if (clahe) {
+    working = applyClahe(working)
+    claheApplied = true
+  }
+
   if (binarize) {
     working = adaptiveThreshold(working)
   }
@@ -62,6 +71,7 @@ export function enhanceCanvas(source: HTMLCanvasElement, options: EnhanceOptions
     appliedDeskewDegrees,
     appliedUpscale,
     binarized: binarize,
+    claheApplied,
   }
 }
 
@@ -246,4 +256,105 @@ export function releaseCanvas(canvas: HTMLCanvasElement | null): void {
   if (!canvas) return
   canvas.width = 0
   canvas.height = 0
+}
+
+/**
+ * Contrast-Limited Adaptive Histogram Equalization.
+ *
+ * Splits the image into tiles, equalizes each tile's histogram, clips
+ * over-represented bins to `clipLimit * (tilePixels/256)`, then bilinearly
+ * interpolates between tile CDFs so tile seams don't show up.
+ *
+ * Dramatically improves faded photocopies and phone-shot pages where a
+ * global histogram fix would over-darken already-dark regions.
+ */
+function applyClahe(source: HTMLCanvasElement, tileGrid = 8, clipLimit = 3.0): HTMLCanvasElement {
+  const w = source.width
+  const h = source.height
+  const out = newCanvas(w, h)
+  const ctx = getCtx(out)
+  ctx.drawImage(source, 0, 0)
+  const image = ctx.getImageData(0, 0, w, h)
+  const px = image.data
+
+  const tilesX = tileGrid
+  const tilesY = tileGrid
+  const tileW = Math.max(1, Math.floor(w / tilesX))
+  const tileH = Math.max(1, Math.floor(h / tilesY))
+  const tilePixels = tileW * tileH
+  const clipCount = Math.max(1, Math.floor((clipLimit * tilePixels) / 256))
+
+  // One CDF (lookup table) per tile
+  const luts = new Uint8Array(tilesX * tilesY * 256)
+
+  for (let ty = 0; ty < tilesY; ty++) {
+    for (let tx = 0; tx < tilesX; tx++) {
+      const x0 = tx * tileW
+      const y0 = ty * tileH
+      const x1 = tx === tilesX - 1 ? w : x0 + tileW
+      const y1 = ty === tilesY - 1 ? h : y0 + tileH
+      const hist = new Uint32Array(256)
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
+          hist[px[(y * w + x) * 4]]++
+        }
+      }
+      // Clip
+      let excess = 0
+      for (let i = 0; i < 256; i++) {
+        if (hist[i] > clipCount) {
+          excess += hist[i] - clipCount
+          hist[i] = clipCount
+        }
+      }
+      const perBin = Math.floor(excess / 256)
+      const remainder = excess - perBin * 256
+      for (let i = 0; i < 256; i++) hist[i] += perBin
+      // Distribute the remainder across the low bins
+      for (let i = 0; i < remainder; i++) hist[i]++
+
+      // CDF → LUT
+      const total = (x1 - x0) * (y1 - y0)
+      let cum = 0
+      const lutOffset = (ty * tilesX + tx) * 256
+      for (let i = 0; i < 256; i++) {
+        cum += hist[i]
+        luts[lutOffset + i] = Math.max(0, Math.min(255, Math.round((cum * 255) / total)))
+      }
+    }
+  }
+
+  const readLut = (tx: number, ty: number, value: number): number => {
+    const cx = Math.max(0, Math.min(tilesX - 1, tx))
+    const cy = Math.max(0, Math.min(tilesY - 1, ty))
+    return luts[(cy * tilesX + cx) * 256 + value]
+  }
+
+  for (let y = 0; y < h; y++) {
+    const gy = y / tileH - 0.5
+    const ty0 = Math.floor(gy)
+    const ty1 = ty0 + 1
+    const fy = gy - ty0
+    for (let x = 0; x < w; x++) {
+      const gx = x / tileW - 0.5
+      const tx0 = Math.floor(gx)
+      const tx1 = tx0 + 1
+      const fx = gx - tx0
+      const v = px[(y * w + x) * 4]
+      const v00 = readLut(tx0, ty0, v)
+      const v10 = readLut(tx1, ty0, v)
+      const v01 = readLut(tx0, ty1, v)
+      const v11 = readLut(tx1, ty1, v)
+      const top = v00 * (1 - fx) + v10 * fx
+      const bottom = v01 * (1 - fx) + v11 * fx
+      const value = Math.round(top * (1 - fy) + bottom * fy)
+      const i = (y * w + x) * 4
+      px[i] = value
+      px[i + 1] = value
+      px[i + 2] = value
+    }
+  }
+
+  ctx.putImageData(image, 0, 0)
+  return out
 }
