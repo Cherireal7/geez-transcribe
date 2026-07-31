@@ -31,6 +31,7 @@ import {
   recentUploadsStore,
   transcribeFile,
   type OcrProfileId,
+  type PageSegMode,
   type PipelineProgress,
   type PipelineResult,
   type RecentUploadEntry,
@@ -54,8 +55,9 @@ const SAMPLE_LINES = [
 
 async function synthesizeSampleImage(): Promise<File | null> {
   if (typeof document === "undefined") return null;
-  const width = 1400;
-  const height = 900;
+  // Render at ~300 DPI equivalent so Tesseract has plenty of pixel detail.
+  const width = 2550;
+  const height = 1650;
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
@@ -65,16 +67,16 @@ async function synthesizeSampleImage(): Promise<File | null> {
   ctx.fillRect(0, 0, width, height);
   ctx.fillStyle = "#111111";
   ctx.textBaseline = "top";
-  ctx.font = "700 44px 'Noto Sans Ethiopic', 'Nyala', 'Kefa', serif";
-  const paddingX = 80;
-  let y = 90;
+  ctx.font = "700 80px 'Noto Sans Ethiopic', 'Nyala', 'Kefa', serif";
+  const paddingX = 150;
+  let y = 170;
   for (const line of SAMPLE_LINES) {
     ctx.fillText(line, paddingX, y);
-    y += 78;
+    y += 140;
   }
-  ctx.font = "italic 22px 'Georgia', serif";
+  ctx.font = "italic 38px 'Georgia', serif";
   ctx.fillStyle = "#555555";
-  ctx.fillText("Sample generated for Geez Transcribe · rendered client-side", paddingX, height - 60);
+  ctx.fillText("Sample generated for Geez Transcribe · rendered client-side", paddingX, height - 100);
   return await new Promise<File | null>((resolve) => {
     canvas.toBlob((blob) => {
       if (!blob) {
@@ -191,6 +193,9 @@ export default function Home() {
   const [ocrProfileId, setOcrProfileId] = useState<OcrProfileId>("ethiopic");
   const [confidenceThreshold, setConfidenceThreshold] = useState(70);
   const [retryLowConfidence, setRetryLowConfidence] = useState(true);
+  const [highAccuracy, setHighAccuracy] = useState(true);
+  const [applyClahe, setApplyClahe] = useState(true);
+  const [psm, setPsm] = useState<PageSegMode>("auto");
 
   const [progress, setProgress] = useState<PipelineProgress | null>(null);
   const [result, setResult] = useState<PipelineResult | null>(null);
@@ -295,6 +300,9 @@ export default function Home() {
             ocrProfileId,
             lowConfidenceThreshold: confidenceThreshold,
             retryLowConfidence,
+            highAccuracy,
+            applyClahe,
+            psm,
             forceFormat: structureDetection === "Pages" ? "pages" : undefined,
             signal: controller.signal,
           },
@@ -333,7 +341,7 @@ export default function Home() {
         }
       }
     },
-    [confidenceThreshold, fixEncodingToggle, forceOcr, ocrProfileId, retryLowConfidence, structureDetection],
+    [applyClahe, confidenceThreshold, fixEncodingToggle, forceOcr, highAccuracy, ocrProfileId, psm, retryLowConfidence, structureDetection],
   );
 
   const acceptFile = useCallback(
@@ -525,7 +533,34 @@ export default function Home() {
             />
           </div>
 
+          <div className={styles.sectionTitle}>Accuracy</div>
+          <div className={styles.toggleRow}>
+            <span className={styles.toggleLabel}>Best model</span>
+            <button
+              type="button"
+              className={`${styles.toggleSwitch} ${highAccuracy ? styles.toggleOn : ""}`}
+              onClick={() => setHighAccuracy((v) => !v)}
+              aria-pressed={highAccuracy}
+              aria-label="Toggle high-accuracy model"
+            />
+          </div>
+          <div className={styles.limitText}>
+            {highAccuracy
+              ? "tessdata_best — slower first run (larger download), noticeably higher accuracy."
+              : "tessdata_fast — smaller model, faster, less accurate on Ge'ez."}
+          </div>
+
           <div className={styles.sectionTitle}>Processing</div>
+          <div className={styles.toggleRow}>
+            <span className={styles.toggleLabel}>Enhance contrast</span>
+            <button
+              type="button"
+              className={`${styles.toggleSwitch} ${applyClahe ? styles.toggleOn : ""}`}
+              onClick={() => setApplyClahe((v) => !v)}
+              aria-pressed={applyClahe}
+              aria-label="Toggle CLAHE contrast enhancement"
+            />
+          </div>
           <div className={styles.toggleRow}>
             <span className={styles.toggleLabel}>Fix encoding</span>
             <button
@@ -536,6 +571,20 @@ export default function Home() {
               aria-label="Toggle encoding fixes"
             />
           </div>
+
+          <div className={styles.sectionTitle}>Segmentation</div>
+          <select
+            className={styles.selectControl}
+            value={psm}
+            onChange={(event) => setPsm(event.target.value as PageSegMode)}
+            aria-label="Page segmentation mode"
+          >
+            <option value="auto">Auto</option>
+            <option value="single-column">Single column</option>
+            <option value="single-block">Single block</option>
+            <option value="sparse-text">Sparse text</option>
+            <option value="single-line">Single line</option>
+          </select>
 
           <div className={styles.sectionTitle}>Structure</div>
           <div className={styles.segmentedControl}>

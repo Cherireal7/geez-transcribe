@@ -17,7 +17,7 @@ export { extractPdfText, getPdfPageCount } from './extractPdf'
 export type { ExtractionResult, ExtractionProgress } from './extractPdf'
 
 export { ocrPdf, ocrSinglePage, OCR_PROFILES, isAbortError } from './ocrPdf'
-export type { OcrResult, OcrProgress, OcrPageMetric, OcrProfile, OcrProfileId, OcrOptions } from './ocrPdf'
+export type { OcrResult, OcrProgress, OcrPageMetric, OcrProfile, OcrProfileId, OcrOptions, PageSegMode } from './ocrPdf'
 
 export { ocrImage, isImageFile, SUPPORTED_IMAGE_EXTENSIONS, SUPPORTED_IMAGE_MIME_TYPES } from './ocrImage'
 

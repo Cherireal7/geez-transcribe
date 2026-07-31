@@ -52,15 +52,38 @@ export interface OcrResult {
   engineVersion?: string
 }
 
+export type PageSegMode =
+  | 'auto'
+  | 'single-block'
+  | 'single-column'
+  | 'sparse-text'
+  | 'single-line'
+
 export interface OcrOptions {
   profileId?: OcrProfileId
   lowConfidenceThreshold?: number
   retryLowConfidence?: boolean
   signal?: AbortSignal
+  highAccuracy?: boolean       // use tessdata_best (default true)
+  applyClahe?: boolean         // adaptive contrast (default true)
+  psm?: PageSegMode            // page segmentation mode (default 'auto')
 }
 
 const DEFAULT_PROFILE_ID: OcrProfileId = 'ethiopic'
 const DEFAULT_LOW_CONFIDENCE_THRESHOLD = 70
+const PRIMARY_RASTER_SCALE = 3.0
+const HIGHRES_RASTER_SCALE = 4.0
+
+const TESSDATA_BEST_URL = 'https://tessdata.projectnaptha.com/4.0.0_best'
+const TESSDATA_FAST_URL = 'https://tessdata.projectnaptha.com/4.0.0'
+
+const PSM_MAP: Record<PageSegMode, PSM> = {
+  'auto': PSM.AUTO,
+  'single-block': PSM.SINGLE_BLOCK,
+  'single-column': PSM.SINGLE_COLUMN,
+  'sparse-text': PSM.SPARSE_TEXT,
+  'single-line': PSM.SINGLE_LINE,
+}
 
 function normalizeCommon(text: string): string {
   return text
@@ -165,6 +188,7 @@ export interface PageRecognitionInput {
   highResFactory?: () => Promise<HTMLCanvasElement>
   lowConfidenceThreshold: number
   retryLowConfidence: boolean
+  applyClahe?: boolean
   onStatus?: (status: string) => void
   signal?: AbortSignal
 }
@@ -175,7 +199,16 @@ export interface PageRecognitionOutput {
 }
 
 export async function recognizePageCanvas(input: PageRecognitionInput): Promise<PageRecognitionOutput> {
-  const { worker, baseCanvas, highResFactory, lowConfidenceThreshold, retryLowConfidence, onStatus, signal } = input
+  const {
+    worker,
+    baseCanvas,
+    highResFactory,
+    lowConfidenceThreshold,
+    retryLowConfidence,
+    applyClahe = true,
+    onStatus,
+    signal,
+  } = input
 
   let primaryCanvas: HTMLCanvasElement | null = null
   let binaryCanvas: HTMLCanvasElement | null = null
@@ -183,7 +216,7 @@ export async function recognizePageCanvas(input: PageRecognitionInput): Promise<
   let highResBinary: HTMLCanvasElement | null = null
 
   try {
-    const primary = enhanceCanvas(baseCanvas, { deskew: true, binarize: false })
+    const primary = enhanceCanvas(baseCanvas, { deskew: true, binarize: false, clahe: applyClahe })
     primaryCanvas = primary.canvas
     onStatus?.(primary.appliedDeskewDegrees !== 0 ? 'recognizing-primary-deskewed' : 'recognizing-primary')
     ensureNotAborted(signal)
@@ -192,7 +225,7 @@ export async function recognizePageCanvas(input: PageRecognitionInput): Promise<
     if (retryLowConfidence && best.confidence < lowConfidenceThreshold) {
       onStatus?.('retrying-binary')
       ensureNotAborted(signal)
-      const binary = enhanceCanvas(baseCanvas, { deskew: true, binarize: true })
+      const binary = enhanceCanvas(baseCanvas, { deskew: true, binarize: true, clahe: applyClahe })
       binaryCanvas = binary.canvas
       const binaryResult = await recognizeCanvas(worker, binaryCanvas, 'binary-retry')
       best = selectBestCandidate(best, binaryResult)
@@ -202,7 +235,7 @@ export async function recognizePageCanvas(input: PageRecognitionInput): Promise<
       onStatus?.('retrying-highres')
       ensureNotAborted(signal)
       highResBase = await highResFactory()
-      const highRes = enhanceCanvas(highResBase, { deskew: true, binarize: true, upscaleMinLongEdge: 0 })
+      const highRes = enhanceCanvas(highResBase, { deskew: true, binarize: true, clahe: applyClahe, upscaleMinLongEdge: 0 })
       highResBinary = highRes.canvas
       const highResResult = await recognizeCanvas(worker, highResBinary, 'highres-retry')
       best = selectBestCandidate(best, highResResult)
@@ -217,10 +250,16 @@ export async function recognizePageCanvas(input: PageRecognitionInput): Promise<
   }
 }
 
-async function createTesseractWorker(language: string): Promise<Worker> {
-  const worker = await createWorker(language, 1, { logger: () => {} })
+async function createTesseractWorker(
+  language: string,
+  { highAccuracy = true, psm = 'auto' as PageSegMode }: { highAccuracy?: boolean; psm?: PageSegMode } = {}
+): Promise<Worker> {
+  const worker = await createWorker(language, 1, {
+    logger: () => {},
+    langPath: highAccuracy ? TESSDATA_BEST_URL : TESSDATA_FAST_URL,
+  })
   await worker.setParameters({
-    tessedit_pageseg_mode: PSM.AUTO,
+    tessedit_pageseg_mode: PSM_MAP[psm] ?? PSM.AUTO,
     preserve_interword_spaces: '1',
     user_defined_dpi: '300',
   })
@@ -240,6 +279,9 @@ export async function ocrPdf(
   const language = lang || profile.lang
   const lowConfidenceThreshold = options.lowConfidenceThreshold ?? DEFAULT_LOW_CONFIDENCE_THRESHOLD
   const retryLowConfidence = options.retryLowConfidence ?? true
+  const highAccuracy = options.highAccuracy ?? true
+  const applyClahe = options.applyClahe ?? true
+  const psm = options.psm ?? 'auto'
   const signal = options.signal
 
   ensureNotAborted(signal)
@@ -249,7 +291,7 @@ export async function ocrPdf(
   const pageMetrics: OcrPageMetric[] = []
   let detectedEngineVersion: string | undefined
 
-  const worker = await createTesseractWorker(language)
+  const worker = await createTesseractWorker(language, { highAccuracy, psm })
 
   try {
     for (let pageNumber = 1; pageNumber <= session.pageCount; pageNumber++) {
@@ -258,13 +300,14 @@ export async function ocrPdf(
 
       let baseCanvas: HTMLCanvasElement | null = null
       try {
-        baseCanvas = await rasterizePageFromSession(session, pageNumber, 2.4)
+        baseCanvas = await rasterizePageFromSession(session, pageNumber, PRIMARY_RASTER_SCALE)
         const { best, lowConfidence } = await recognizePageCanvas({
           worker,
           baseCanvas,
-          highResFactory: () => rasterizePageFromSession(session, pageNumber, 3.2),
+          highResFactory: () => rasterizePageFromSession(session, pageNumber, HIGHRES_RASTER_SCALE),
           lowConfidenceThreshold,
           retryLowConfidence,
+          applyClahe,
           onStatus: status => onProgress?.({ page: pageNumber, total: session.pageCount, status }),
           signal,
         })
@@ -341,16 +384,20 @@ export async function ocrSinglePage(
   const profile = resolveProfile(options.profileId)
   const language = lang || profile.lang
   const session = await openPdfDocument(file)
-  const worker = await createTesseractWorker(language)
+  const worker = await createTesseractWorker(language, {
+    highAccuracy: options.highAccuracy ?? true,
+    psm: options.psm ?? 'auto',
+  })
 
   let baseCanvas: HTMLCanvasElement | null = null
   try {
-    baseCanvas = await rasterizePageFromSession(session, pageNumber, 2.4)
+    baseCanvas = await rasterizePageFromSession(session, pageNumber, PRIMARY_RASTER_SCALE)
     const { best } = await recognizePageCanvas({
       worker,
       baseCanvas,
       lowConfidenceThreshold: options.lowConfidenceThreshold ?? DEFAULT_LOW_CONFIDENCE_THRESHOLD,
       retryLowConfidence: options.retryLowConfidence ?? true,
+      applyClahe: options.applyClahe ?? true,
       signal: options.signal,
     })
     return {

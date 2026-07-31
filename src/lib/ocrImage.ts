@@ -92,7 +92,10 @@ export async function ocrImage(
 
   onProgress?.({ page: 1, total: 1, status: 'rasterizing' })
   let baseCanvas: HTMLCanvasElement | null = null
-  const worker = await createTesseractWorker(language)
+  const worker = await createTesseractWorker(language, {
+    highAccuracy: options.highAccuracy ?? true,
+    psm: options.psm ?? 'auto',
+  })
 
   try {
     baseCanvas = await loadImageToCanvas(file)
@@ -101,6 +104,7 @@ export async function ocrImage(
       baseCanvas,
       lowConfidenceThreshold,
       retryLowConfidence,
+      applyClahe: options.applyClahe ?? true,
       onStatus: status => onProgress?.({ page: 1, total: 1, status }),
       signal,
     })
